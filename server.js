@@ -5,6 +5,7 @@ const bodyParser = require('body-parser');
 const helmet = require('helmet');
 const compression = require('compression');
 const rateLimit = require('express-rate-limit');
+const path = require('path');
 require('dotenv').config();
 
 const app = express();
@@ -611,6 +612,17 @@ app.use((err, req, res, next) => {
             : err.message
     });
 });
+
+// Only serve API routes, not static files
+app.get('/api', (req, res) => {
+  res.json({
+    message: 'API Server is running',
+    timestamp: new Date().toISOString(),
+    status: 'online',
+    endpoints: ['/api/test', '/api/users'] // Add your actual endpoints
+  });
+});
+
 
 // Start server
 app.listen(port, () => {
