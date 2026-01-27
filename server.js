@@ -27,7 +27,7 @@ app.use('/api/', limiter);
 
 const allowedOrigins =
     process.env.NODE_ENV === 'production'
-        ? ['https://api.greenchilliestechnology.com']
+        ? ['https://api.greenchilliestechnology.com', 'http://localhost:3000', 'http://localhost:61547', 'http://192.168.50.105:3000', 'http://localhost:60642']
         : ['http://localhost:3000'];
 
 // CORS configuration
@@ -64,16 +64,32 @@ const dynamodb = new AWS.DynamoDB.DocumentClient();
 // Tables
 const EMPLOYEES_TABLE = process.env.EMPLOYEES_TABLE || 'Employees';
 const LOCATION_TABLE = process.env.LOCATION_TABLE || 'EmployeeLocation';
-const ATTENDANCE_TABLE = process.env.ATTENDANCE_TABLE || 'EmployeeAttendance';
+const ATTENDANCE_TABLE = process.env.ATTENDANCE_TABLE || 'Attendance';
 
-// Helper function to format date
-const formatDate = (date) => {
-    return date.toISOString().split('T')[0];
+// Helper function to format date from any timestamp (UTC)
+const formatDate = (dateString) => {
+    const date = new Date(dateString);
+    // Always use UTC to avoid timezone issues
+    const year = date.getUTCFullYear();
+    const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(date.getUTCDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
 };
 
-// Helper function to format time
-const formatTime = (date) => {
-    return date.toISOString().split('T')[1].split('.')[0].substr(0, 8);
+// Helper function to format time from any timestamp (UTC)
+const formatTime = (dateString) => {
+    const date = new Date(dateString);
+    // Always use UTC to avoid timezone issues
+    const hours = String(date.getUTCHours()).padStart(2, '0');
+    const minutes = String(date.getUTCMinutes()).padStart(2, '0');
+    const seconds = String(date.getUTCSeconds()).padStart(2, '0');
+    return `${hours}:${minutes}:${seconds}`;
+};
+
+// Helper function to get current UTC time
+const getCurrentUTCTime = () => {
+    const now = new Date();
+    return now.toISOString(); // Always returns UTC
 };
 
 // Test endpoint
@@ -280,9 +296,11 @@ app.post('/api/locations', async (req, res) => {
             return res.status(400).json({ error: 'Employee ID, latitude and longitude are required' });
         }
 
-        const now = new Date();
-        const locationId = `${employeeId}_${now.getTime()}`;
-        const recordTime = timestamp || now.toISOString();
+        // Always use UTC time
+        const recordTime = timestamp || getCurrentUTCTime();
+        const locationDate = new Date(recordTime);
+
+        const locationId = `${employeeId}_${locationDate.getTime()}`;
 
         const params = {
             TableName: LOCATION_TABLE,
@@ -295,9 +313,10 @@ app.post('/api/locations', async (req, res) => {
                 speed: speed ? parseFloat(speed) : 0,
                 accuracy: accuracy ? parseFloat(accuracy) : 0,
                 battery: battery ? parseFloat(battery) : 100,
-                timestamp: recordTime,
-                date: formatDate(new Date(recordTime)),
-                time: formatTime(new Date(recordTime))
+                timestamp: recordTime, // Store as ISO string
+                date: formatDate(recordTime), // UTC date
+                time: formatTime(recordTime), // UTC time
+                recordedAt: getCurrentUTCTime() // When server received it
             }
         };
 
@@ -314,7 +333,7 @@ app.post('/api/locations', async (req, res) => {
                 ':lat': parseFloat(latitude),
                 ':lng': parseFloat(longitude),
                 ':status': 'active',
-                ':updated': now.toISOString()
+                ':updated': getCurrentUTCTime() // Use UTC
             }
         };
 
@@ -446,6 +465,47 @@ app.get('/api/employees/:employeeId/locations', async (req, res) => {
     }
 });
 
+
+// Add this to server.js
+app.get('/api/locations/status-overview', async (req, res) => {
+    try {
+        const today = new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD format
+
+        // Fetch all data in parallel for speed
+        const [employees, attendance, locations] = await Promise.all([
+            docClient.scan({ TableName: EMPLOYEES_TABLE }).promise(),
+            docClient.scan({
+                TableName: ATTENDANCE_TABLE,
+                FilterExpression: '#d = :today',
+                ExpressionAttributeNames: { '#d': 'date' },
+                ExpressionAttributeValues: { ':today': today }
+            }).promise(),
+            docClient.scan({ TableName: LOCATION_TABLE }).promise()
+        ]);
+
+        // Map latest location to each employee
+        const latestLocMap = {};
+        locations.Items.forEach(loc => {
+            if (!latestLocMap[loc.employeeId] || new Date(loc.timestamp) > new Date(latestLocMap[loc.employeeId].timestamp)) {
+                latestLocMap[loc.employeeId] = loc;
+            }
+        });
+
+        // Set of IDs who have ANY attendance entry today
+        const activeTodayIds = new Set(attendance.Items.map(a => a.employeeId));
+
+        const result = employees.Items.map(emp => ({
+            ...emp,
+            isLive: activeTodayIds.has(emp.employeeId), // Active if attendance exists today
+            latestLocation: latestLocMap[emp.employeeId] || null
+        }));
+
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // Seed test data
 app.post('/api/seed-test-data', async (req, res) => {
     try {
@@ -536,56 +596,129 @@ app.post('/api/seed-test-data', async (req, res) => {
 });
 
 
-// Create attendance record endpoint
-app.post('/api/attendance', async (req, res) => {
-    try {
-        const { employeeId, status, timestamp } = req.body;
+// 1. Clock In
+app.post('/api/attendance/clock-in', async (req, res) => {
+    console.log('=== CLOCK IN REQUEST START ===');
+    console.log('Request body:', req.body);
 
-        if (!employeeId || !status) {
-            return res.status(400).json({ error: 'Employee ID and status are required' });
+    try {
+        const { employeeId } = req.body;
+
+        if (!employeeId) {
+            return res.status(400).json({
+                success: false,
+                error: 'employeeId is required'
+            });
         }
 
-        const now = new Date();
-        const attendanceId = `${employeeId}_${now.getTime()}`;
-        const recordTime = timestamp || now.toISOString();
+        const now = getCurrentUTCTime();
+        const dateObj = new Date(now);
+        const today = formatDate(now); // Use UTC date
+        const loginTime = formatTime(now); // Use UTC time
 
         const params = {
             TableName: ATTENDANCE_TABLE,
             Item: {
-                attendanceId,
-                employeeId,
-                status, // 'clock_in' or 'clock_out'
-                timestamp: recordTime,
-                date: formatDate(new Date(recordTime)),
-                time: formatTime(new Date(recordTime))
+                employeeId: employeeId,
+                date: today,
+                loginTime: loginTime,
+                logoutTime: null,
+                status: 'PRESENT',
+                timestamp: now
             }
         };
+
+        console.log('Saving to DynamoDB:', params);
 
         await dynamodb.put(params).promise();
 
-        // Update employee status
-        const updateParams = {
-            TableName: EMPLOYEES_TABLE,
-            Key: { employeeId },
-            UpdateExpression: 'SET #s = :status, lastUpdated = :updated',
-            ExpressionAttributeNames: { '#s': 'status' },
-            ExpressionAttributeValues: {
-                ':status': status === 'clock_in' ? 'active' : 'inactive',
-                ':updated': now.toISOString()
-            }
-        };
-
-        await dynamodb.update(updateParams).promise();
+        console.log('✅ Clock-in saved successfully');
 
         res.json({
             success: true,
-            message: `Attendance ${status} recorded`
+            message: 'Clocked in successfully',
+            data: {
+                employeeId: employeeId,
+                date: today,
+                loginTime: loginTime,
+                timestamp: now
+            }
         });
+
     } catch (error) {
-        console.error('Error recording attendance:', error);
-        res.status(500).json({ error: error.message });
+        console.error('❌ Clock-in error:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message,
+            code: error.code
+        });
     }
 });
+
+// Clock Out
+app.post('/api/attendance/clock-out', async (req, res) => {
+    console.log('=== CLOCK OUT REQUEST START ===');
+    console.log('Request body:', req.body);
+
+    try {
+        const { employeeId } = req.body;
+
+        if (!employeeId) {
+            return res.status(400).json({
+                success: false,
+                error: 'employeeId is required'
+            });
+        }
+
+        const now = getCurrentUTCTime();
+        const dateObj = new Date(now);
+        const today = formatDate(now); // Use UTC date
+        const logoutTime = formatTime(now); // Use UTC time
+
+        const params = {
+            TableName: ATTENDANCE_TABLE,
+            Key: {
+                employeeId: employeeId,
+                date: today
+            },
+            UpdateExpression: "SET logoutTime = :l",
+            ExpressionAttributeValues: {
+                ":l": logoutTime
+            },
+            ReturnValues: "UPDATED_NEW"
+        };
+
+        const result = await dynamodb.update(params).promise();
+
+        res.json({
+            success: true,
+            message: 'Clocked out successfully',
+            logoutTime,
+            updated: result.Attributes
+        });
+    } catch (error) {
+        console.error('Clock-out error:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+// Helper for employee status update
+async function updateEmployeeStatus(employeeId, status, now) {
+    const params = {
+        TableName: EMPLOYEES_TABLE,
+        Key: { employeeId },
+        UpdateExpression: 'SET #s = :status, lastUpdated = :updated',
+        ExpressionAttributeNames: { '#s': 'status' },
+        ExpressionAttributeValues: {
+            ':status': status,
+            ':updated': now.toISOString()
+        }
+    };
+    await dynamodb.update(params).promise();
+}
 
 // Health check
 app.get('/api/health', (req, res) => {

@@ -1,0 +1,66 @@
+2026-01-27T06:26:34.847Z - Error: The CORS policy for this site does not allow access from the specified Origin.
+    at origin (D:\Projects\GPS_Projects\locationgct\server.js:41:29)
+    at D:\Projects\GPS_Projects\locationgct\node_modules\cors\lib\index.js:219:13
+    at optionsCallback (D:\Projects\GPS_Projects\locationgct\node_modules\cors\lib\index.js:199:9)
+    at corsMiddleware (D:\Projects\GPS_Projects\locationgct\node_modules\cors\lib\index.js:204:7)
+    at Layer.handle [as handle_request] (D:\Projects\GPS_Projects\locationgct\node_modules\express\lib\router\layer.js:95:5)
+    at trim_prefix (D:\Projects\GPS_Projects\locationgct\node_modules\express\lib\router\index.js:328:13)
+    at D:\Projects\GPS_Projects\locationgct\node_modules\express\lib\router\index.js:286:9
+    at router.process_params (D:\Projects\GPS_Projects\locationgct\node_modules\express\lib\router\index.js:346:12)
+    at next (D:\Projects\GPS_Projects\locationgct\node_modules\express\lib\router\index.js:280:10)
+    at D:\Projects\GPS_Projects\locationgct\node_modules\express-rate-limit\dist\index.cjs:942:7
+2026-01-27T06:34:06.978Z - Error: The CORS policy for this site does not allow access from the specified Origin.
+    at origin (D:\Projects\GPS_Projects\locationgct\server.js:41:29)
+    at D:\Projects\GPS_Projects\locationgct\node_modules\cors\lib\index.js:219:13
+    at optionsCallback (D:\Projects\GPS_Projects\locationgct\node_modules\cors\lib\index.js:199:9)
+    at corsMiddleware (D:\Projects\GPS_Projects\locationgct\node_modules\cors\lib\index.js:204:7)
+    at Layer.handle [as handle_request] (D:\Projects\GPS_Projects\locationgct\node_modules\express\lib\router\layer.js:95:5)
+    at trim_prefix (D:\Projects\GPS_Projects\locationgct\node_modules\express\lib\router\index.js:328:13)
+    at D:\Projects\GPS_Projects\locationgct\node_modules\express\lib\router\index.js:286:9
+    at router.process_params (D:\Projects\GPS_Projects\locationgct\node_modules\express\lib\router\index.js:346:12)
+    at next (D:\Projects\GPS_Projects\locationgct\node_modules\express\lib\router\index.js:280:10)
+    at D:\Projects\GPS_Projects\locationgct\node_modules\express-rate-limit\dist\index.cjs:942:7
+2026-01-27T06:34:27.783Z - Error: The CORS policy for this site does not allow access from the specified Origin.
+    at origin (D:\Projects\GPS_Projects\locationgct\server.js:41:29)
+    at D:\Projects\GPS_Projects\locationgct\node_modules\cors\lib\index.js:219:13
+    at optionsCallback (D:\Projects\GPS_Projects\locationgct\node_modules\cors\lib\index.js:199:9)
+    at corsMiddleware (D:\Projects\GPS_Projects\locationgct\node_modules\cors\lib\index.js:204:7)
+    at Layer.handle [as handle_request] (D:\Projects\GPS_Projects\locationgct\node_modules\express\lib\router\layer.js:95:5)
+    at trim_prefix (D:\Projects\GPS_Projects\locationgct\node_modules\express\lib\router\index.js:328:13)
+    at D:\Projects\GPS_Projects\locationgct\node_modules\express\lib\router\index.js:286:9
+    at router.process_params (D:\Projects\GPS_Projects\locationgct\node_modules\express\lib\router\index.js:346:12)
+    at next (D:\Projects\GPS_Projects\locationgct\node_modules\express\lib\router\index.js:280:10)
+    at D:\Projects\GPS_Projects\locationgct\node_modules\express-rate-limit\dist\index.cjs:942:7
+2026-01-27T06:51:31.553Z - Error: The CORS policy for this site does not allow access from the specified Origin.
+    at origin (D:\Projects\GPS_Projects\locationgct\server.js:41:29)
+    at D:\Projects\GPS_Projects\locationgct\node_modules\cors\lib\index.js:219:13
+    at optionsCallback (D:\Projects\GPS_Projects\locationgct\node_modules\cors\lib\index.js:199:9)
+    at corsMiddleware (D:\Projects\GPS_Projects\locationgct\node_modules\cors\lib\index.js:204:7)
+    at Layer.handle [as handle_request] (D:\Projects\GPS_Projects\locationgct\node_modules\express\lib\router\layer.js:95:5)
+    at trim_prefix (D:\Projects\GPS_Projects\locationgct\node_modules\express\lib\router\index.js:328:13)
+    at D:\Projects\GPS_Projects\locationgct\node_modules\express\lib\router\index.js:286:9
+    at router.process_params (D:\Projects\GPS_Projects\locationgct\node_modules\express\lib\router\index.js:346:12)
+    at next (D:\Projects\GPS_Projects\locationgct\node_modules\express\lib\router\index.js:280:10)
+    at D:\Projects\GPS_Projects\locationgct\node_modules\express-rate-limit\dist\index.cjs:942:7
+2026-01-27T07:17:57.787Z - Error: The CORS policy for this site does not allow access from the specified Origin.
+    at origin (D:\Projects\GPS_Projects\locationgct\server.js:41:29)
+    at D:\Projects\GPS_Projects\locationgct\node_modules\cors\lib\index.js:219:13
+    at optionsCallback (D:\Projects\GPS_Projects\locationgct\node_modules\cors\lib\index.js:199:9)
+    at corsMiddleware (D:\Projects\GPS_Projects\locationgct\node_modules\cors\lib\index.js:204:7)
+    at Layer.handle [as handle_request] (D:\Projects\GPS_Projects\locationgct\node_modules\express\lib\router\layer.js:95:5)
+    at trim_prefix (D:\Projects\GPS_Projects\locationgct\node_modules\express\lib\router\index.js:328:13)
+    at D:\Projects\GPS_Projects\locationgct\node_modules\express\lib\router\index.js:286:9
+    at router.process_params (D:\Projects\GPS_Projects\locationgct\node_modules\express\lib\router\index.js:346:12)
+    at next (D:\Projects\GPS_Projects\locationgct\node_modules\express\lib\router\index.js:280:10)
+    at D:\Projects\GPS_Projects\locationgct\node_modules\express-rate-limit\dist\index.cjs:942:7
+2026-01-27T08:27:08.449Z - Error: The CORS policy for this site does not allow access from the specified Origin.
+    at origin (D:\Projects\GPS_Projects\locationgct\server.js:41:29)
+    at D:\Projects\GPS_Projects\locationgct\node_modules\cors\lib\index.js:219:13
+    at optionsCallback (D:\Projects\GPS_Projects\locationgct\node_modules\cors\lib\index.js:199:9)
+    at corsMiddleware (D:\Projects\GPS_Projects\locationgct\node_modules\cors\lib\index.js:204:7)
+    at Layer.handle [as handle_request] (D:\Projects\GPS_Projects\locationgct\node_modules\express\lib\router\layer.js:95:5)
+    at trim_prefix (D:\Projects\GPS_Projects\locationgct\node_modules\express\lib\router\index.js:328:13)
+    at D:\Projects\GPS_Projects\locationgct\node_modules\express\lib\router\index.js:286:9
+    at router.process_params (D:\Projects\GPS_Projects\locationgct\node_modules\express\lib\router\index.js:346:12)
+    at next (D:\Projects\GPS_Projects\locationgct\node_modules\express\lib\router\index.js:280:10)
+    at D:\Projects\GPS_Projects\locationgct\node_modules\express-rate-limit\dist\index.cjs:942:7
