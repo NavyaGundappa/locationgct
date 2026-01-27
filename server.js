@@ -62,9 +62,9 @@ AWS.config.update({
 const dynamodb = new AWS.DynamoDB.DocumentClient();
 
 // Tables
-const EMPLOYEES_TABLE = 'Employees';
-const LOCATION_TABLE = 'EmployeeLocation';
-const ATTENDANCE_TABLE = 'EmployeeAttendance';
+const EMPLOYEES_TABLE = process.env.EMPLOYEES_TABLE || 'Employees';
+const LOCATION_TABLE = process.env.LOCATION_TABLE || 'EmployeeLocation';
+const ATTENDANCE_TABLE = process.env.ATTENDANCE_TABLE || 'EmployeeAttendance';
 
 // Helper function to format date
 const formatDate = (date) => {
@@ -588,7 +588,7 @@ app.post('/api/attendance', async (req, res) => {
 });
 
 // Health check
-app.get('/health', (req, res) => {
+app.get('/api/health', (req, res) => {
     res.json({
         status: 'healthy',
         timestamp: new Date().toISOString(),
@@ -615,12 +615,12 @@ app.use((err, req, res, next) => {
 
 // Only serve API routes, not static files
 app.get('/api', (req, res) => {
-  res.json({
-    message: 'API Server is running',
-    timestamp: new Date().toISOString(),
-    status: 'online',
-    endpoints: ['/api/test', '/api/users'] // Add your actual endpoints
-  });
+    res.json({
+        message: 'API Server is running',
+        timestamp: new Date().toISOString(),
+        status: 'online',
+        endpoints: ['/api/test', '/api/users'] // Add your actual endpoints
+    });
 });
 
 
