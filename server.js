@@ -290,30 +290,31 @@ app.post('/api/login', async (req, res) => {
 
 // Record location update
 app.post('/api/locations', async (req, res) => {
-    console.log("📍 Received data from App:", req.body); // Check if data arrives
-
     try {
         const { employeeId, latitude, longitude, speed, accuracy } = req.body;
-        const locationId = `${employeeId}_${Date.now()}`;
+        const now = new Date();
+        const timestamp = now.getTime(); // This ensures the ID is unique
 
         const params = {
             TableName: 'EmployeeLocations',
             Item: {
-                locationId: locationId,
-                employeeId: employeeId,
-                latitude: latitude,
-                longitude: longitude,
-                speed: speed || 0,
-                accuracy: accuracy || 0,
-                timestamp: new Date().toISOString()
+                // UNIQUE ID: employeeId + time (e.g., 200302_1700000000)
+                'locationId': `${employeeId}_${timestamp}`,
+                'employeeId': employeeId,
+                'latitude': latitude,
+                'longitude': longitude,
+                'speed': speed || 0,
+                'accuracy': accuracy || 0,
+                'recordedAt': getISTTime(), // Saved in IST
+                'date': new Date(new Date().getTime() + 19800000).toISOString().split('T')[0], // IST Date
+                'timestamp': timestamp.toString()
             }
         };
 
         await dynamodb.put(params).promise();
-        console.log("✅ SUCCESSFULLY SAVED TO DYNAMODB"); // If you don't see this, it didn't save
         res.json({ success: true });
     } catch (error) {
-        console.error('❌ DYNAMODB ERROR:', error.message); // This will tell you the REAL reason
+        console.error('Location Error:', error);
         res.status(500).json({ error: error.message });
     }
 });
@@ -564,75 +565,63 @@ app.post('/api/seed-test-data', async (req, res) => {
 });
 
 
-// 1. Clock In
+// Function to get current IST time
+const getIST = () => {
+    const now = new Date();
+    // Offset for IST is +5.5 hours
+    const istOffset = 5.5 * 60 * 60 * 1000;
+    return new Date(now.getTime() + istOffset);
+};
+
+// CLOCK IN ROUTE
 app.post('/api/attendance/clockin', async (req, res) => {
     try {
-        const { employeeId, latitude, longitude, deviceMetadata } = req.body;
-
-        if (!employeeId) {
-            return res.status(400).json({ error: 'Employee ID is required' });
-        }
-
-        const now = new Date();
-        const dateStr = now.toISOString().split('T')[0]; // Format: YYYY-MM-DD
+        const { employeeId } = req.body;
+        const istDate = getIST();
+        const dateStr = istDate.toISOString().split('T')[0]; // YYYY-MM-DD
+        const attendanceId = `${employeeId}_${dateStr}`;
 
         const params = {
-            TableName: 'Attendance', // Make sure this table exists in DynamoDB
+            TableName: 'Attendance',
             Item: {
-                attendanceId: `${employeeId}_${dateStr}`, // Unique ID for the day
+                attendanceId: attendanceId,
                 employeeId: employeeId,
-                date: dateStr,
-                clockInTime: now.toISOString(),
+                clockInTime: istDate.toISOString().replace('Z', '+05:30'), // Marks it as IST
                 status: 'present',
-                initialLocation: {
-                    lat: latitude,
-                    lng: longitude
-                },
-                deviceMetadata: deviceMetadata || {}
+                date: dateStr
             }
         };
 
         await dynamodb.put(params).promise();
-
-        res.json({
-            success: true,
-            message: 'Clock-in successful',
-            data: params.Item
-        });
+        res.json({ success: true, message: 'Clocked in at IST' });
     } catch (error) {
-        console.error('Clock-in Error:', error);
-        res.status(500).json({ error: 'Server failed to record clock-in' });
+        res.status(500).json({ error: error.message });
     }
 });
 
-// Clock Out
+// CLOCK OUT ROUTE (This was likely missing!)
 app.post('/api/attendance/clockout', async (req, res) => {
     try {
         const { employeeId } = req.body;
-        const now = new Date();
-        const dateStr = now.toISOString().split('T')[0];
+        const istDate = getIST();
+        const dateStr = istDate.toISOString().split('T')[0];
         const attendanceId = `${employeeId}_${dateStr}`;
 
         const params = {
             TableName: 'Attendance',
             Key: { 'attendanceId': attendanceId },
-            // This updates the existing record instead of creating a new one
             UpdateExpression: "set clockOutTime = :t, #s = :status",
             ExpressionAttributeNames: { "#s": "status" },
             ExpressionAttributeValues: {
-                ":t": now.toISOString(),
+                ":t": istDate.toISOString().replace('Z', '+05:30'),
                 ":status": "completed"
-            },
-            ReturnValues: "UPDATED_NEW"
+            }
         };
 
         await dynamodb.update(params).promise();
-        console.log(`✅ Clock-out successful for ${employeeId}`);
-
-        res.json({ success: true, message: 'Clock-out recorded' });
+        res.json({ success: true, message: 'Clocked out at IST' });
     } catch (error) {
-        console.error('Clock-out Error:', error);
-        res.status(500).json({ error: 'Failed to record clock-out' });
+        res.status(500).json({ error: error.message });
     }
 });
 
