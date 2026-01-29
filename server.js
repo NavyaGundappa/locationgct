@@ -566,58 +566,98 @@ app.post('/api/seed-test-data', async (req, res) => {
 
 
 // Function to get current IST time
-const getIST = () => {
+const getISTDateStr = () => {
     const now = new Date();
-    // Offset for IST is UTC + 5.5 hours
-    return new Date(now.getTime() + (5.5 * 60 * 60 * 1000));
+    // Add 5.5 hours to get IST
+    const istDate = new Date(now.getTime() + (5.5 * 60 * 60 * 1000));
+    return istDate.toISOString().split('T')[0]; // Returns YYYY-MM-DD
 };
 
-// CLOCK IN ROUTE
-app.post('/api/attendance/clockin', async (req, res) => {
+app.get('/api/attendance/status/:employeeId', async (req, res) => {
     try {
-        const { employeeId } = req.body;
-        const istDate = getIST();
-        const dateStr = istDate.toISOString().split('T')[0]; // YYYY-MM-DD
+        const { employeeId } = req.params;
+        const dateStr = getISTDateStr();
         const attendanceId = `${employeeId}_${dateStr}`;
 
         const params = {
-            TableName: 'Attendance',
+            TableName: ATTENDANCE_TABLE, // Use the constant!
+            Key: { attendanceId }
+        };
+
+        const result = await dynamodb.get(params).promise();
+
+        // If record exists and status is 'present', they are clocked in
+        const isClockedIn = result.Item && result.Item.status === 'present';
+
+        res.json({
+            success: true,
+            isClockedIn: isClockedIn,
+            data: result.Item || null
+        });
+    } catch (error) {
+        console.error('Status check error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// 2. CLOCK IN ROUTE
+app.post('/api/attendance/clockin', async (req, res) => {
+    try {
+        const { employeeId } = req.body;
+        const dateStr = getISTDateStr();
+        const attendanceId = `${employeeId}_${dateStr}`;
+        const istNow = new Date(new Date().getTime() + (5.5 * 60 * 60 * 1000));
+
+        const params = {
+            TableName: ATTENDANCE_TABLE, // Use the constant!
             Item: {
                 attendanceId: attendanceId,
                 employeeId: employeeId,
-                clockInTime: istDate.toISOString().replace('Z', '+05:30'), // Marks it as IST
+                clockInTime: istNow.toISOString(), // Save full ISO
                 status: 'present',
                 date: dateStr
-            }
+            },
+            // Prevent overwriting if already clocked in today
+            ConditionExpression: 'attribute_not_exists(attendanceId)'
         };
 
         await dynamodb.put(params).promise();
         res.json({ success: true, message: 'Clocked in at IST' });
     } catch (error) {
+        if (error.code === 'ConditionalCheckFailedException') {
+            return res.json({ success: true, message: 'Already clocked in today' });
+        }
         res.status(500).json({ error: error.message });
     }
 });
 
-// CLOCK OUT ROUTE (This was likely missing!)
+// 3. CLOCK OUT ROUTE
 app.post('/api/attendance/clockout', async (req, res) => {
     try {
         const { employeeId } = req.body;
-        const istDate = getISTDate();
-        const dateStr = istDate.toISOString().split('T')[0];
+        const dateStr = getISTDateStr();
+        const attendanceId = `${employeeId}_${dateStr}`;
+        const istNow = new Date(new Date().getTime() + (5.5 * 60 * 60 * 1000));
 
         const params = {
-            TableName: 'Attendance',
-            Key: { 'attendanceId': `${employeeId}_${dateStr}` },
+            TableName: ATTENDANCE_TABLE, // Use the constant!
+            Key: { attendanceId }, // Must match the Clock-In ID exactly
             UpdateExpression: "set clockOutTime = :t, #s = :status",
+            ConditionExpression: "attribute_exists(attendanceId)", // Fail if no Clock-In found
             ExpressionAttributeNames: { "#s": "status" },
             ExpressionAttributeValues: {
-                ":t": istDate.toISOString(),
+                ":t": istNow.toISOString(),
                 ":status": "completed"
             }
         };
+
         await dynamodb.update(params).promise();
-        res.json({ success: true, message: 'Clocked out (IST)' });
+        res.json({ success: true, message: 'Clocked out successfully' });
     } catch (error) {
+        console.error('Clock out error:', error);
+        if (error.code === 'ConditionalCheckFailedException') {
+            return res.status(400).json({ error: 'No active clock-in record found for today.' });
+        }
         res.status(500).json({ error: error.message });
     }
 });
