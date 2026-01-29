@@ -25,27 +25,28 @@ const limiter = rateLimit({
 });
 app.use('/api/', limiter);
 
-const allowedOrigins =
-    process.env.NODE_ENV === 'production'
-        ? ['https://api.greenchilliestechnology.com', 'http://localhost:3000', 'http://localhost:61547', 'http://192.168.50.105:3000', 'http://localhost:60642']
-        : ['http://localhost:3000'];
+const allowedOrigins = [
+    'https://greenchilliestechnology.com',
+    'https://api.greenchilliestechnology.com',
+    'http://localhost:3000',
+];
 
-// CORS configuration
-app.use(cors({
-    origin: function (origin, callback) {
-        // Allow requests with no origin (like mobile apps or curl requests)
-        if (!origin) return callback(null, true);
+app.use(
+    cors({
+        origin: function (origin, callback) {
+            // allow mobile apps (no origin)
+            if (!origin) return callback(null, true);
 
-        if (allowedOrigins.indexOf(origin) === -1) {
-            const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
-            return callback(new Error(msg), false);
-        }
-        return callback(null, true);
-    },
-    credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
-}));
+            if (allowedOrigins.includes(origin)) {
+                return callback(null, true);
+            }
+
+            return callback(new Error('Not allowed by CORS'));
+        },
+        credentials: true,
+    })
+);
+
 
 const morgan = require('morgan');
 app.use(morgan('combined'));
