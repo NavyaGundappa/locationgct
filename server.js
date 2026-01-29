@@ -598,61 +598,44 @@ app.post('/api/seed-test-data', async (req, res) => {
 
 
 // 1. Clock In
-app.post('/api/attendance/clock-in', async (req, res) => {
-    console.log('=== CLOCK IN REQUEST START ===');
-    console.log('Request body:', req.body);
-
+// CLOCK IN ROUTE
+app.post('/api/attendance/clockin', async (req, res) => {
     try {
-        const { employeeId } = req.body;
+        const { employeeId, latitude, longitude, deviceMetadata } = req.body;
 
         if (!employeeId) {
-            return res.status(400).json({
-                success: false,
-                error: 'employeeId is required'
-            });
+            return res.status(400).json({ error: 'Employee ID is required' });
         }
 
-        const now = getCurrentUTCTime();
-        const dateObj = new Date(now);
-        const today = formatDate(now); // Use UTC date
-        const loginTime = formatTime(now); // Use UTC time
+        const now = new Date();
+        const dateStr = now.toISOString().split('T')[0]; // Format: YYYY-MM-DD
 
         const params = {
-            TableName: ATTENDANCE_TABLE,
+            TableName: 'Attendance', // Make sure this table exists in DynamoDB
             Item: {
+                attendanceId: `${employeeId}_${dateStr}`, // Unique ID for the day
                 employeeId: employeeId,
-                date: today,
-                loginTime: loginTime,
-                logoutTime: null,
-                status: 'PRESENT',
-                timestamp: now
+                date: dateStr,
+                clockInTime: now.toISOString(),
+                status: 'present',
+                initialLocation: {
+                    lat: latitude,
+                    lng: longitude
+                },
+                deviceMetadata: deviceMetadata || {}
             }
         };
 
-        console.log('Saving to DynamoDB:', params);
-
         await dynamodb.put(params).promise();
-
-        console.log('✅ Clock-in saved successfully');
 
         res.json({
             success: true,
-            message: 'Clocked in successfully',
-            data: {
-                employeeId: employeeId,
-                date: today,
-                loginTime: loginTime,
-                timestamp: now
-            }
+            message: 'Clock-in successful',
+            data: params.Item
         });
-
     } catch (error) {
-        console.error('❌ Clock-in error:', error);
-        res.status(500).json({
-            success: false,
-            error: error.message,
-            code: error.code
-        });
+        console.error('Clock-in Error:', error);
+        res.status(500).json({ error: 'Server failed to record clock-in' });
     }
 });
 
