@@ -290,31 +290,45 @@ app.post('/api/login', async (req, res) => {
 
 // Record location update
 app.post('/api/locations', async (req, res) => {
+    console.log("📍 LOCATION REQUEST RECEIVED:", req.body); // <--- THIS WILL SHOW IN YOUR TERMINAL
+
     try {
         const { employeeId, latitude, longitude, speed, accuracy } = req.body;
+
+        // Validation
+        if (!employeeId || !latitude || !longitude) {
+            console.log("❌ Missing Data:", req.body);
+            return res.status(400).json({ error: 'Missing required fields' });
+        }
+
         const now = new Date();
-        const timestamp = now.getTime(); // This ensures the ID is unique
+        const timestamp = now.getTime();
+
+        // Use the constant LOCATION_TABLE defined at the top of your file
+        // If it's not defined, fallback to 'EmployeeLocation'
+        const tableName = process.env.LOCATION_TABLE || 'EmployeeLocation';
 
         const params = {
-            TableName: 'EmployeeLocations',
+            TableName: tableName,
             Item: {
-                // UNIQUE ID: employeeId + time (e.g., 200302_1700000000)
                 'locationId': `${employeeId}_${timestamp}`,
                 'employeeId': employeeId,
-                'latitude': latitude,
-                'longitude': longitude,
+                'latitude': parseFloat(latitude), // Ensure numbers
+                'longitude': parseFloat(longitude),
                 'speed': speed || 0,
                 'accuracy': accuracy || 0,
-                'recordedAt': getISTTime(), // Saved in IST
-                'date': new Date(new Date().getTime() + 19800000).toISOString().split('T')[0], // IST Date
+                'recordedAt': now.toISOString(),
+                'date': getTodayDateString(),
                 'timestamp': timestamp.toString()
             }
         };
 
         await dynamodb.put(params).promise();
+        console.log("✅ Location Saved Successfully!");
         res.json({ success: true });
+
     } catch (error) {
-        console.error('Location Error:', error);
+        console.error('❌ CRITICAL DB ERROR:', error);
         res.status(500).json({ error: error.message });
     }
 });
@@ -576,59 +590,100 @@ const getIST = () => {
 app.post('/api/attendance/clockin', async (req, res) => {
     try {
         const { employeeId } = req.body;
-        const istDate = getIST();
-        const dateStr = istDate.toISOString().split('T')[0]; // YYYY-MM-DD
+        const dateStr = getTodayDateString();
         const attendanceId = `${employeeId}_${dateStr}`;
+        const istNow = getISTTime();
+
+        console.log(`⏰ Clock In Attempt: ${attendanceId}`);
 
         const params = {
-            TableName: 'Attendance',
+            TableName: process.env.ATTENDANCE_TABLE || 'Attendance',
             Item: {
                 attendanceId: attendanceId,
                 employeeId: employeeId,
-                clockInTime: istDate.toISOString().replace('Z', '+05:30'), // Marks it as IST
+                clockInTime: istNow.toISOString(),
                 status: 'present',
-                date: dateStr
-            }
+                date: dateStr,
+                createdAt: new Date().toISOString()
+            },
+            ConditionExpression: 'attribute_not_exists(attendanceId)'
         };
 
         await dynamodb.put(params).promise();
-        res.json({ success: true, message: 'Clocked in at IST' });
+        res.json({ success: true, message: 'Clocked in successfully' });
+
     } catch (error) {
-        res.status(500).json({ error: error.message });
+        if (error.code === 'ConditionalCheckFailedException') {
+            // Already clocked in? That's fine, treat as success for the UI
+            res.json({ success: true, message: 'Already clocked in' });
+        } else {
+            console.error(error);
+            res.status(500).json({ error: error.message });
+        }
     }
 });
 
-// CLOCK OUT ROUTE (This was likely missing!)
+// Clock Out (The Fix)
 app.post('/api/attendance/clockout', async (req, res) => {
     try {
         const { employeeId } = req.body;
+        const dateStr = getTodayDateString();
+        const attendanceId = `${employeeId}_${dateStr}`;
+        const istNow = getISTTime();
 
-        // Get current date in IST (YYYY-MM-DD)
-        const now = new Date();
-        const istOffset = 5.5 * 60 * 60 * 1000;
-        const istDate = new Date(now.getTime() + istOffset);
-        const dateStr = istDate.toISOString().split('T')[0];
+        console.log(`👋 Clock Out Attempt: ${attendanceId}`);
 
         const params = {
-            TableName: 'Attendance',
-            Key: {
-                'attendanceId': `${employeeId}_${dateStr}` // Matches the ID created at Clock-In
-            },
+            TableName: process.env.ATTENDANCE_TABLE || 'Attendance',
+            Key: { attendanceId: attendanceId },
             UpdateExpression: "set clockOutTime = :t, #s = :status",
             ExpressionAttributeNames: { "#s": "status" },
             ExpressionAttributeValues: {
-                ":t": istDate.toISOString(),
+                ":t": istNow.toISOString(),
                 ":status": "completed"
-            }
+            },
+            // Only allow clock out if the record actually exists
+            ConditionExpression: "attribute_exists(attendanceId)"
         };
 
         await dynamodb.update(params).promise();
         res.json({ success: true, message: 'Clocked out successfully' });
+
     } catch (error) {
-        console.error('Clock out error:', error);
+        console.error('Clock Out Error:', error);
+
+        if (error.code === 'ConditionalCheckFailedException') {
+            res.status(400).json({
+                error: 'Cannot Clock Out: No "Clock In" record found for today (' + getTodayDateString() + '). Did you Clock In?'
+            });
+        } else {
+            res.status(500).json({ error: error.message });
+        }
+    }
+});
+
+app.get('/api/attendance/status/:employeeId', async (req, res) => {
+    try {
+        const { employeeId } = req.params;
+        const dateStr = getTodayDateString();
+        const attendanceId = `${employeeId}_${dateStr}`;
+
+        console.log(`Checking status for: ${attendanceId}`);
+
+        const params = {
+            TableName: process.env.ATTENDANCE_TABLE || 'Attendance',
+            Key: { attendanceId }
+        };
+
+        const result = await dynamodb.get(params).promise();
+        const isClockedIn = result.Item && result.Item.status === 'present';
+
+        res.json({ success: true, isClockedIn, data: result.Item });
+    } catch (error) {
         res.status(500).json({ error: error.message });
     }
 });
+
 
 // Helper for employee status update
 async function updateEmployeeStatus(employeeId, status, now) {
