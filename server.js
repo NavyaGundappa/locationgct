@@ -334,60 +334,44 @@ app.post('/api/locations', async (req, res) => {
 });
 
 // Get all locations with filters
-app.get('/api/locations', async (req, res) => {
-    try {
-        const { employeeId, deviceId, date, startDate, endDate, limit = 100 } = req.query;
+app.post('/api/locations', async (req, res) => {
+    console.log("📍 LOCATION REQUEST RECEIVED:", req.body);
 
-        let params = {
-            TableName: LOCATION_TABLE,
-            Limit: parseInt(limit)
+    try {
+        const { employeeId, latitude, longitude, speed, accuracy } = req.body;
+
+        if (!employeeId || !latitude || !longitude) {
+            return res.status(400).json({ error: 'Missing required fields' });
+        }
+
+        const now = new Date();
+        const timestamp = now.getTime();
+        const tableName = process.env.LOCATION_TABLE || 'EmployeeLocation';
+
+        // FIX 2: Ensure we use the function we just defined/aliased
+        const dateStr = getTodayDateString();
+
+        const params = {
+            TableName: tableName,
+            Item: {
+                'locationId': `${employeeId}_${timestamp}`,
+                'employeeId': employeeId,
+                'latitude': parseFloat(latitude),
+                'longitude': parseFloat(longitude),
+                'speed': speed || 0,
+                'accuracy': accuracy || 0,
+                'recordedAt': now.toISOString(),
+                'date': dateStr, // Used to be undefined or caused crash
+                'timestamp': timestamp.toString()
+            }
         };
 
-        let filterExpressions = [];
-        let expressionAttributeValues = {};
+        await dynamodb.put(params).promise();
+        console.log("✅ Location Saved Successfully!");
+        res.json({ success: true });
 
-        if (employeeId) {
-            filterExpressions.push('employeeId = :employeeId');
-            expressionAttributeValues[':employeeId'] = employeeId;
-        }
-
-        if (deviceId) {
-            filterExpressions.push('deviceId = :deviceId');
-            expressionAttributeValues[':deviceId'] = deviceId;
-        }
-
-        if (date) {
-            filterExpressions.push('#d = :date');
-            expressionAttributeValues[':date'] = date;
-        }
-
-        if (filterExpressions.length > 0) {
-            params.FilterExpression = filterExpressions.join(' AND ');
-            params.ExpressionAttributeValues = expressionAttributeValues;
-        }
-
-        // Add ExpressionAttributeNames for reserved keywords
-        if (date) {
-            params.ExpressionAttributeNames = { '#d': 'date' };
-        }
-
-        const result = await dynamodb.scan(params).promise();
-
-        // Apply date range filter if provided
-        let locations = result.Items || [];
-        if (startDate && endDate) {
-            locations = locations.filter(item => {
-                const itemDate = new Date(item.timestamp);
-                return itemDate >= new Date(startDate) && itemDate <= new Date(endDate);
-            });
-        }
-
-        // Sort by timestamp descending (latest first)
-        locations.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-
-        res.json(locations);
     } catch (error) {
-        console.error('Error fetching locations:', error);
+        console.error('❌ CRITICAL DB ERROR:', error);
         res.status(500).json({ error: error.message });
     }
 });
@@ -580,12 +564,14 @@ app.post('/api/seed-test-data', async (req, res) => {
 
 
 // Function to get current IST time
-// Function to get current IST date string (YYYY-MM-DD)
 const getISTDateString = () => {
     const now = new Date();
+    // Add 5.5 hours for IST
     const istDate = new Date(now.getTime() + (5.5 * 60 * 60 * 1000));
     return istDate.toISOString().split('T')[0];
 };
+
+const getTodayDateString = getISTDateString;
 
 // FIXED CLOCK IN
 app.post('/api/attendance/clockin', async (req, res) => {
@@ -631,7 +617,6 @@ app.post('/api/attendance/clockout', async (req, res) => {
                 ":t": new Date().toISOString(),
                 ":status": "completed"
             },
-            // Ensure the record exists before updating
             ConditionExpression: "attribute_exists(attendanceId)"
         };
 
@@ -639,17 +624,17 @@ app.post('/api/attendance/clockout', async (req, res) => {
         res.json({ success: true, message: 'Clocked out successfully' });
     } catch (error) {
         console.error('Clock-out error:', error);
-        res.status(400).json({ error: "Could not find a Clock-In record for today." });
+        // Better error message
+        res.status(400).json({ error: "Clock-out failed. No active clock-in record found for today." });
     }
 });
 
 app.get('/api/attendance/status/:employeeId', async (req, res) => {
     try {
         const { employeeId } = req.params;
+        // FIX: This was causing the "Fetch and display" crash
         const dateStr = getTodayDateString();
         const attendanceId = `${employeeId}_${dateStr}`;
-
-        console.log(`Checking status for: ${attendanceId}`);
 
         const params = {
             TableName: process.env.ATTENDANCE_TABLE || 'Attendance',
@@ -657,14 +642,16 @@ app.get('/api/attendance/status/:employeeId', async (req, res) => {
         };
 
         const result = await dynamodb.get(params).promise();
-        const isClockedIn = result.Item && result.Item.status === 'present';
+
+        // Check if item exists AND status is present
+        const isClockedIn = !!(result.Item && result.Item.status === 'present');
 
         res.json({ success: true, isClockedIn, data: result.Item });
     } catch (error) {
+        console.error("Status check failed:", error); // Log it
         res.status(500).json({ error: error.message });
     }
 });
-
 
 // Helper for employee status update
 async function updateEmployeeStatus(employeeId, status, now) {
