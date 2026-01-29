@@ -580,85 +580,66 @@ app.post('/api/seed-test-data', async (req, res) => {
 
 
 // Function to get current IST time
-const getIST = () => {
+// Function to get current IST date string (YYYY-MM-DD)
+const getISTDateString = () => {
     const now = new Date();
-    // Offset for IST is UTC + 5.5 hours
-    return new Date(now.getTime() + (5.5 * 60 * 60 * 1000));
+    const istDate = new Date(now.getTime() + (5.5 * 60 * 60 * 1000));
+    return istDate.toISOString().split('T')[0];
 };
 
-// CLOCK IN ROUTE
+// FIXED CLOCK IN
 app.post('/api/attendance/clockin', async (req, res) => {
     try {
         const { employeeId } = req.body;
-        const dateStr = getTodayDateString();
+        const dateStr = getISTDateString();
         const attendanceId = `${employeeId}_${dateStr}`;
-        const istNow = getISTTime();
-
-        console.log(`⏰ Clock In Attempt: ${attendanceId}`);
 
         const params = {
-            TableName: process.env.ATTENDANCE_TABLE || 'Attendance',
+            TableName: 'Attendance',
             Item: {
                 attendanceId: attendanceId,
                 employeeId: employeeId,
-                clockInTime: istNow.toISOString(),
+                clockInTime: new Date().toISOString(),
                 status: 'present',
-                date: dateStr,
-                createdAt: new Date().toISOString()
+                date: dateStr
             },
+            // Prevent overwriting if they already clocked in today
             ConditionExpression: 'attribute_not_exists(attendanceId)'
         };
 
         await dynamodb.put(params).promise();
         res.json({ success: true, message: 'Clocked in successfully' });
-
     } catch (error) {
-        if (error.code === 'ConditionalCheckFailedException') {
-            // Already clocked in? That's fine, treat as success for the UI
-            res.json({ success: true, message: 'Already clocked in' });
-        } else {
-            console.error(error);
-            res.status(500).json({ error: error.message });
-        }
+        console.error('Clock-in error:', error);
+        res.status(500).json({ error: error.message });
     }
 });
 
-// Clock Out (The Fix)
+// FIXED CLOCK OUT
 app.post('/api/attendance/clockout', async (req, res) => {
     try {
         const { employeeId } = req.body;
-        const dateStr = getTodayDateString();
+        const dateStr = getISTDateString();
         const attendanceId = `${employeeId}_${dateStr}`;
-        const istNow = getISTTime();
-
-        console.log(`👋 Clock Out Attempt: ${attendanceId}`);
 
         const params = {
-            TableName: process.env.ATTENDANCE_TABLE || 'Attendance',
-            Key: { attendanceId: attendanceId },
+            TableName: 'Attendance',
+            Key: { 'attendanceId': attendanceId },
             UpdateExpression: "set clockOutTime = :t, #s = :status",
             ExpressionAttributeNames: { "#s": "status" },
             ExpressionAttributeValues: {
-                ":t": istNow.toISOString(),
+                ":t": new Date().toISOString(),
                 ":status": "completed"
             },
-            // Only allow clock out if the record actually exists
+            // Ensure the record exists before updating
             ConditionExpression: "attribute_exists(attendanceId)"
         };
 
         await dynamodb.update(params).promise();
         res.json({ success: true, message: 'Clocked out successfully' });
-
     } catch (error) {
-        console.error('Clock Out Error:', error);
-
-        if (error.code === 'ConditionalCheckFailedException') {
-            res.status(400).json({
-                error: 'Cannot Clock Out: No "Clock In" record found for today (' + getTodayDateString() + '). Did you Clock In?'
-            });
-        } else {
-            res.status(500).json({ error: error.message });
-        }
+        console.error('Clock-out error:', error);
+        res.status(400).json({ error: "Could not find a Clock-In record for today." });
     }
 });
 
