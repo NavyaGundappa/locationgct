@@ -611,21 +611,22 @@ app.post('/api/attendance/clockout', async (req, res) => {
         const params = {
             TableName: 'Attendance',
             Key: { 'attendanceId': attendanceId },
-            UpdateExpression: "set clockOutTime = :t, #s = :status",
+            // Using UpdateExpression ensures we modify the existing today's record
+            UpdateExpression: "SET clockOutTime = :t, #s = :status",
             ExpressionAttributeNames: { "#s": "status" },
             ExpressionAttributeValues: {
                 ":t": new Date().toISOString(),
                 ":status": "completed"
             },
+            // Condition ensures we don't try to clock out if clock-in never happened
             ConditionExpression: "attribute_exists(attendanceId)"
         };
 
         await dynamodb.update(params).promise();
-        res.json({ success: true, message: 'Clocked out successfully' });
+        res.json({ success: true, message: "Clocked out successfully" });
     } catch (error) {
-        console.error('Clock-out error:', error);
-        // Better error message
-        res.status(400).json({ error: "Clock-out failed. No active clock-in record found for today." });
+        console.error("Clock out error:", error);
+        res.status(500).json({ error: "Server failed to clock out" });
     }
 });
 
