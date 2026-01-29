@@ -290,63 +290,30 @@ app.post('/api/login', async (req, res) => {
 
 // Record location update
 app.post('/api/locations', async (req, res) => {
+    console.log("📍 Received data from App:", req.body); // Check if data arrives
+
     try {
-        const { employeeId, deviceId, latitude, longitude, speed, accuracy, battery, timestamp } = req.body;
-
-        if (!employeeId || !latitude || !longitude) {
-            return res.status(400).json({ error: 'Employee ID, latitude and longitude are required' });
-        }
-
-        // Always use UTC time
-        const recordTime = timestamp || getCurrentUTCTime();
-        const locationDate = new Date(recordTime);
-
-        const locationId = `${employeeId}_${locationDate.getTime()}`;
+        const { employeeId, latitude, longitude, speed, accuracy } = req.body;
+        const locationId = `${employeeId}_${Date.now()}`;
 
         const params = {
-            TableName: LOCATION_TABLE,
+            TableName: 'EmployeeLocations',
             Item: {
-                locationId,
-                employeeId,
-                deviceId: deviceId || `DEVICE_${employeeId}`,
-                latitude: parseFloat(latitude),
-                longitude: parseFloat(longitude),
-                speed: speed ? parseFloat(speed) : 0,
-                accuracy: accuracy ? parseFloat(accuracy) : 0,
-                battery: battery ? parseFloat(battery) : 100,
-                timestamp: recordTime, // Store as ISO string
-                date: formatDate(recordTime), // UTC date
-                time: formatTime(recordTime), // UTC time
-                recordedAt: getCurrentUTCTime() // When server received it
+                locationId: locationId,
+                employeeId: employeeId,
+                latitude: latitude,
+                longitude: longitude,
+                speed: speed || 0,
+                accuracy: accuracy || 0,
+                timestamp: new Date().toISOString()
             }
         };
 
         await dynamodb.put(params).promise();
-
-        // Update employee's last location
-        const updateParams = {
-            TableName: EMPLOYEES_TABLE,
-            Key: { employeeId },
-            UpdateExpression: 'SET lastLocationTime = :time, lastLatitude = :lat, lastLongitude = :lng, #s = :status, lastUpdated = :updated',
-            ExpressionAttributeNames: { '#s': 'status' },
-            ExpressionAttributeValues: {
-                ':time': recordTime,
-                ':lat': parseFloat(latitude),
-                ':lng': parseFloat(longitude),
-                ':status': 'active',
-                ':updated': getCurrentUTCTime() // Use UTC
-            }
-        };
-
-        await dynamodb.update(updateParams).promise();
-
-        res.json({
-            success: true,
-            message: 'Location recorded',
-            location: params.Item
-        });
+        console.log("✅ SUCCESSFULLY SAVED TO DYNAMODB"); // If you don't see this, it didn't save
+        res.json({ success: true });
     } catch (error) {
-        console.error('Error recording location:', error);
+        console.error('❌ DYNAMODB ERROR:', error.message); // This will tell you the REAL reason
         res.status(500).json({ error: error.message });
     }
 });
@@ -598,7 +565,6 @@ app.post('/api/seed-test-data', async (req, res) => {
 
 
 // 1. Clock In
-// CLOCK IN ROUTE
 app.post('/api/attendance/clockin', async (req, res) => {
     try {
         const { employeeId, latitude, longitude, deviceMetadata } = req.body;
@@ -640,52 +606,33 @@ app.post('/api/attendance/clockin', async (req, res) => {
 });
 
 // Clock Out
-app.post('/api/attendance/clock-out', async (req, res) => {
-    console.log('=== CLOCK OUT REQUEST START ===');
-    console.log('Request body:', req.body);
-
+app.post('/api/attendance/clockout', async (req, res) => {
     try {
         const { employeeId } = req.body;
-
-        if (!employeeId) {
-            return res.status(400).json({
-                success: false,
-                error: 'employeeId is required'
-            });
-        }
-
-        const now = getCurrentUTCTime();
-        const dateObj = new Date(now);
-        const today = formatDate(now); // Use UTC date
-        const logoutTime = formatTime(now); // Use UTC time
+        const now = new Date();
+        const dateStr = now.toISOString().split('T')[0];
+        const attendanceId = `${employeeId}_${dateStr}`;
 
         const params = {
-            TableName: ATTENDANCE_TABLE,
-            Key: {
-                employeeId: employeeId,
-                date: today
-            },
-            UpdateExpression: "SET logoutTime = :l",
+            TableName: 'Attendance',
+            Key: { 'attendanceId': attendanceId },
+            // This updates the existing record instead of creating a new one
+            UpdateExpression: "set clockOutTime = :t, #s = :status",
+            ExpressionAttributeNames: { "#s": "status" },
             ExpressionAttributeValues: {
-                ":l": logoutTime
+                ":t": now.toISOString(),
+                ":status": "completed"
             },
             ReturnValues: "UPDATED_NEW"
         };
 
-        const result = await dynamodb.update(params).promise();
+        await dynamodb.update(params).promise();
+        console.log(`✅ Clock-out successful for ${employeeId}`);
 
-        res.json({
-            success: true,
-            message: 'Clocked out successfully',
-            logoutTime,
-            updated: result.Attributes
-        });
+        res.json({ success: true, message: 'Clock-out recorded' });
     } catch (error) {
-        console.error('Clock-out error:', error);
-        res.status(500).json({
-            success: false,
-            error: error.message
-        });
+        console.error('Clock-out Error:', error);
+        res.status(500).json({ error: 'Failed to record clock-out' });
     }
 });
 
