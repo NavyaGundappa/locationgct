@@ -568,9 +568,8 @@ app.post('/api/seed-test-data', async (req, res) => {
 // Function to get current IST time
 const getIST = () => {
     const now = new Date();
-    // Offset for IST is +5.5 hours
-    const istOffset = 5.5 * 60 * 60 * 1000;
-    return new Date(now.getTime() + istOffset);
+    // Offset for IST is UTC + 5.5 hours
+    return new Date(now.getTime() + (5.5 * 60 * 60 * 1000));
 };
 
 // CLOCK IN ROUTE
@@ -603,23 +602,21 @@ app.post('/api/attendance/clockin', async (req, res) => {
 app.post('/api/attendance/clockout', async (req, res) => {
     try {
         const { employeeId } = req.body;
-        const istDate = getIST();
+        const istDate = getISTDate();
         const dateStr = istDate.toISOString().split('T')[0];
-        const attendanceId = `${employeeId}_${dateStr}`;
 
         const params = {
             TableName: 'Attendance',
-            Key: { 'attendanceId': attendanceId },
+            Key: { 'attendanceId': `${employeeId}_${dateStr}` },
             UpdateExpression: "set clockOutTime = :t, #s = :status",
             ExpressionAttributeNames: { "#s": "status" },
             ExpressionAttributeValues: {
-                ":t": istDate.toISOString().replace('Z', '+05:30'),
+                ":t": istDate.toISOString(),
                 ":status": "completed"
             }
         };
-
         await dynamodb.update(params).promise();
-        res.json({ success: true, message: 'Clocked out at IST' });
+        res.json({ success: true, message: 'Clocked out (IST)' });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
