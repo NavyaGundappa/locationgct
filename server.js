@@ -5,51 +5,83 @@ const bodyParser = require('body-parser');
 const helmet = require('helmet');
 const compression = require('compression');
 const rateLimit = require('express-rate-limit');
-const path = require('path');
 require('dotenv').config();
 
 const app = express();
 const port = process.env.PORT || 3001;
 
+// ==========================================
+// 1. HELPER FUNCTIONS (Moved to top to prevent crashes)
+// ==========================================
+
+const getISTTimestamp = () => {
+    const now = new Date();
+    const istOffset = 5.5 * 60 * 60 * 1000;
+    const istTime = new Date(now.getTime() + istOffset);
+    return istTime.toISOString().replace('T', ' ').substring(0, 19);
+};
+
+const getISTDateString = () => {
+    const now = new Date();
+    const istOffset = 5.5 * 60 * 60 * 1000;
+    const istDate = new Date(now.getTime() + istOffset);
+    return istDate.toISOString().split('T')[0];
+};
+
+const getTodayDateString = getISTDateString;
+// Define this alias so it works everywhere
+
+const formatDate = (dateString) => {
+    const date = new Date(dateString);
+    const year = date.getUTCFullYear();
+    const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(date.getUTCDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+};
+
+const formatTime = (dateString) => {
+    const date = new Date(dateString);
+    const hours = String(date.getUTCHours()).padStart(2, '0');
+    const minutes = String(date.getUTCMinutes()).padStart(2, '0');
+    const seconds = String(date.getUTCSeconds()).padStart(2, '0');
+    return `${hours}:${minutes}:${seconds}`;
+};
+
+// ==========================================
+// 2. MIDDLEWARE & CONFIG
+// ==========================================
+
 app.use(helmet({
-    contentSecurityPolicy: false, // Adjust based on your needs
+    contentSecurityPolicy: false,
     crossOriginEmbedderPolicy: false
 }));
-
 app.use(compression());
 
-// Rate limiting
 const limiter = rateLimit({
-    windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 1000 // limit each IP to 1000 requests per windowMs
+    windowMs: 15 * 60 * 1000,
+    max: 1000
 });
 app.use('/api/', limiter);
 
-const allowedOrigins =
-    process.env.NODE_ENV === 'production'
-        ? ['https://api.greenchilliestechnology.com', 'http://localhost:3000', 'http://localhost:61547', 'http://192.168.50.105:3000', 'http://localhost:60642']
-        : ['http://localhost:3000'];
+const allowedOrigins = [
+    'https://greenchilliestechnology.com',
+    'https://api.greenchilliestechnology.com',
+    'http://localhost:3000',
+];
 
-// CORS configuration
 app.use(cors({
     origin: function (origin, callback) {
-        // Allow requests with no origin (like mobile apps or curl requests)
         if (!origin) return callback(null, true);
-
-        if (allowedOrigins.indexOf(origin) === -1) {
-            const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
-            return callback(new Error(msg), false);
+        if (allowedOrigins.includes(origin)) {
+            return callback(null, true);
         }
-        return callback(null, true);
+        return callback(null, true); // Permissive for dev/mobile
     },
     credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
 }));
 
 const morgan = require('morgan');
 app.use(morgan('combined'));
-
 app.use(bodyParser.json());
 
 // AWS Configuration
@@ -66,32 +98,6 @@ const EMPLOYEES_TABLE = process.env.EMPLOYEES_TABLE || 'Employees';
 const LOCATION_TABLE = process.env.LOCATION_TABLE || 'EmployeeLocation';
 const ATTENDANCE_TABLE = process.env.ATTENDANCE_TABLE || 'Attendance';
 
-// Helper function to format date from any timestamp (UTC)
-const formatDate = (dateString) => {
-    const date = new Date(dateString);
-    // Always use UTC to avoid timezone issues
-    const year = date.getUTCFullYear();
-    const month = String(date.getUTCMonth() + 1).padStart(2, '0');
-    const day = String(date.getUTCDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-};
-
-// Helper function to format time from any timestamp (UTC)
-const formatTime = (dateString) => {
-    const date = new Date(dateString);
-    // Always use UTC to avoid timezone issues
-    const hours = String(date.getUTCHours()).padStart(2, '0');
-    const minutes = String(date.getUTCMinutes()).padStart(2, '0');
-    const seconds = String(date.getUTCSeconds()).padStart(2, '0');
-    return `${hours}:${minutes}:${seconds}`;
-};
-
-// Helper function to get current UTC time
-const getCurrentUTCTime = () => {
-    const now = new Date();
-    return now.toISOString(); // Always returns UTC
-};
-
 // Test endpoint
 app.get('/api/test', (req, res) => {
     res.json({
@@ -101,21 +107,21 @@ app.get('/api/test', (req, res) => {
     });
 });
 
-// 1. EMPLOYEE MANAGEMENT ENDPOINTS
+// ==========================================
+// 3. EMPLOYEE MANAGEMENT ENDPOINTS
+// ==========================================
 
 // Add new employee
 app.post('/api/employees', async (req, res) => {
     try {
-        const { employeeId, name, email, phone, department, deviceId, password } = req.body;
+        const { employeeId, name, email, phone, department, deviceId, password, role } = req.body;
 
         if (!employeeId || !name) {
             return res.status(400).json({ error: 'Employee ID and Name are required' });
         }
 
         const now = new Date();
-
-        // Store plain password (default is "12345")
-        const employeePassword = password || '12345'; // Plain password
+        const employeePassword = password || '12345';
 
         const params = {
             TableName: EMPLOYEES_TABLE,
@@ -125,10 +131,11 @@ app.post('/api/employees', async (req, res) => {
                 email: email || '',
                 phone: phone || '',
                 department: department || '',
+                role: role || 'employee',
                 deviceId: deviceId || `DEVICE_${employeeId}`,
-                password: employeePassword, // Store plain password
-                passwordSet: false, // Flag to indicate if password was changed by user
-                status: 'inactive',
+                password: employeePassword,
+                passwordSet: false,
+                status: 'active',
                 createdAt: now.toISOString(),
                 lastUpdated: now.toISOString(),
                 isActive: true
@@ -140,10 +147,7 @@ app.post('/api/employees', async (req, res) => {
         res.json({
             success: true,
             message: 'Employee added successfully',
-            employee: {
-                ...params.Item,
-                password: undefined // Don't send password back in response
-            }
+            employee: { ...params.Item, password: undefined }
         });
     } catch (error) {
         console.error('Error adding employee:', error);
@@ -161,64 +165,41 @@ app.put('/api/employees/:employeeId/password', async (req, res) => {
         const { oldPassword, newPassword } = req.body;
         const { employeeId } = req.params;
 
-        if (!newPassword) {
-            return res.status(400).json({ error: 'New password is required' });
-        }
+        if (!newPassword) return res.status(400).json({ error: 'New password is required' });
 
-        // Get employee
-        const getParams = {
-            TableName: EMPLOYEES_TABLE,
-            Key: { employeeId }
-        };
-
+        const getParams = { TableName: EMPLOYEES_TABLE, Key: { employeeId } };
         const employee = await dynamodb.get(getParams).promise();
 
-        if (!employee.Item) {
-            return res.status(404).json({ error: 'Employee not found' });
-        }
+        if (!employee.Item) return res.status(404).json({ error: 'Employee not found' });
 
-        // Verify old password if passwordSet is true
         if (employee.Item.passwordSet) {
-            if (!oldPassword) {
-                return res.status(400).json({ error: 'Old password is required' });
-            }
-
-            if (oldPassword !== employee.Item.password) {
-                return res.status(401).json({ error: 'Old password is incorrect' });
-            }
+            if (!oldPassword) return res.status(400).json({ error: 'Old password is required' });
+            if (oldPassword !== employee.Item.password) return res.status(401).json({ error: 'Old password is incorrect' });
         }
 
-        // Store plain password
         const updateParams = {
             TableName: EMPLOYEES_TABLE,
             Key: { employeeId },
             UpdateExpression: 'SET password = :password, passwordSet = :passwordSet, lastUpdated = :updated',
             ExpressionAttributeValues: {
-                ':password': newPassword, // Plain password
+                ':password': newPassword,
                 ':passwordSet': true,
                 ':updated': new Date().toISOString()
             }
         };
 
         await dynamodb.update(updateParams).promise();
-
-        res.json({
-            success: true,
-            message: 'Password updated successfully'
-        });
+        res.json({ success: true, message: 'Password updated successfully' });
     } catch (error) {
         console.error('Error updating password:', error);
         res.status(500).json({ error: error.message });
     }
 });
+
 // Get all employees
 app.get('/api/employees', async (req, res) => {
     try {
-        const params = {
-            TableName: EMPLOYEES_TABLE
-        };
-
-        const result = await dynamodb.scan(params).promise();
+        const result = await dynamodb.scan({ TableName: EMPLOYEES_TABLE }).promise();
         res.json(result.Items || []);
     } catch (error) {
         console.error('Error fetching employees:', error);
@@ -229,50 +210,29 @@ app.get('/api/employees', async (req, res) => {
 // Get single employee
 app.get('/api/employees/:employeeId', async (req, res) => {
     try {
-        const params = {
-            TableName: EMPLOYEES_TABLE,
-            Key: { employeeId: req.params.employeeId }
-        };
-
+        const params = { TableName: EMPLOYEES_TABLE, Key: { employeeId: req.params.employeeId } };
         const result = await dynamodb.get(params).promise();
-        if (result.Item) {
-            res.json(result.Item);
-        } else {
-            res.status(404).json({ error: 'Employee not found' });
-        }
+        if (result.Item) res.json(result.Item);
+        else res.status(404).json({ error: 'Employee not found' });
     } catch (error) {
-        console.error('Error fetching employee:', error);
         res.status(500).json({ error: error.message });
     }
 });
 
+// Login
 app.post('/api/login', async (req, res) => {
     try {
         const { employeeId, password } = req.body;
+        if (!employeeId || !password) return res.status(400).json({ error: 'Employee ID and password are required' });
 
-        if (!employeeId || !password) {
-            return res.status(400).json({ error: 'Employee ID and password are required' });
-        }
-
-        const params = {
-            TableName: EMPLOYEES_TABLE,
-            Key: { employeeId }
-        };
-
+        const params = { TableName: EMPLOYEES_TABLE, Key: { employeeId } };
         const result = await dynamodb.get(params).promise();
 
-        if (!result.Item) {
+        if (!result.Item || password !== result.Item.password) {
             return res.status(401).json({ error: 'Invalid credentials' });
         }
 
-        // Verify password directly since they are stored as plain text
-        if (password !== result.Item.password) {
-            return res.status(401).json({ error: 'Invalid credentials' });
-        }
-
-        // Remove password from response
         const { password: _, ...employeeData } = result.Item;
-
         res.json({
             success: true,
             message: 'Login successful',
@@ -280,146 +240,62 @@ app.post('/api/login', async (req, res) => {
             requiresPasswordChange: !result.Item.passwordSet
         });
     } catch (error) {
-        console.error('Error during login:', error);
         res.status(500).json({ error: error.message });
     }
 });
 
-// 2. LOCATION TRACKING ENDPOINTS
+// ==========================================
+// 4. LOCATION TRACKING ENDPOINTS (FIXED)
+// ==========================================
 
-// Record location update
+// Record location (CONSOLIDATED ENDPOINT - NO DUPLICATES)
 app.post('/api/locations', async (req, res) => {
+    console.log("📍 LOCATION REQUEST RECEIVED:", req.body);
+
     try {
-        const { employeeId, deviceId, latitude, longitude, speed, accuracy, battery, timestamp } = req.body;
+        const { employeeId, latitude, longitude, speed, accuracy } = req.body;
 
         if (!employeeId || !latitude || !longitude) {
-            return res.status(400).json({ error: 'Employee ID, latitude and longitude are required' });
+            console.log("❌ Missing Data:", req.body);
+            return res.status(400).json({ error: 'Missing required fields' });
         }
 
-        // Always use UTC time
-        const recordTime = timestamp || getCurrentUTCTime();
-        const locationDate = new Date(recordTime);
-
-        const locationId = `${employeeId}_${locationDate.getTime()}`;
+        const now = new Date();
+        const timestamp = now.getTime();
+        // Uses the hoisted helper function safely
+        const dateStr = getTodayDateString();
 
         const params = {
             TableName: LOCATION_TABLE,
             Item: {
-                locationId,
-                employeeId,
-                deviceId: deviceId || `DEVICE_${employeeId}`,
-                latitude: parseFloat(latitude),
-                longitude: parseFloat(longitude),
-                speed: speed ? parseFloat(speed) : 0,
-                accuracy: accuracy ? parseFloat(accuracy) : 0,
-                battery: battery ? parseFloat(battery) : 100,
-                timestamp: recordTime, // Store as ISO string
-                date: formatDate(recordTime), // UTC date
-                time: formatTime(recordTime), // UTC time
-                recordedAt: getCurrentUTCTime() // When server received it
+                'locationId': `${employeeId}_${timestamp}`,
+                'employeeId': employeeId,
+                'latitude': parseFloat(latitude),
+                'longitude': parseFloat(longitude),
+                'speed': speed || 0,
+                'accuracy': accuracy || 0,
+                'recordedAt': now.toISOString(),
+                'date': dateStr,
+                'timestamp': timestamp.toString()
             }
         };
 
         await dynamodb.put(params).promise();
+        console.log(`✅ Location Saved: ${employeeId}`);
+        res.json({ success: true });
 
-        // Update employee's last location
-        const updateParams = {
-            TableName: EMPLOYEES_TABLE,
-            Key: { employeeId },
-            UpdateExpression: 'SET lastLocationTime = :time, lastLatitude = :lat, lastLongitude = :lng, #s = :status, lastUpdated = :updated',
-            ExpressionAttributeNames: { '#s': 'status' },
-            ExpressionAttributeValues: {
-                ':time': recordTime,
-                ':lat': parseFloat(latitude),
-                ':lng': parseFloat(longitude),
-                ':status': 'active',
-                ':updated': getCurrentUTCTime() // Use UTC
-            }
-        };
-
-        await dynamodb.update(updateParams).promise();
-
-        res.json({
-            success: true,
-            message: 'Location recorded',
-            location: params.Item
-        });
     } catch (error) {
-        console.error('Error recording location:', error);
+        console.error('❌ CRITICAL DB ERROR:', error);
         res.status(500).json({ error: error.message });
     }
 });
 
-// Get all locations with filters
-app.get('/api/locations', async (req, res) => {
-    try {
-        const { employeeId, deviceId, date, startDate, endDate, limit = 100 } = req.query;
-
-        let params = {
-            TableName: LOCATION_TABLE,
-            Limit: parseInt(limit)
-        };
-
-        let filterExpressions = [];
-        let expressionAttributeValues = {};
-
-        if (employeeId) {
-            filterExpressions.push('employeeId = :employeeId');
-            expressionAttributeValues[':employeeId'] = employeeId;
-        }
-
-        if (deviceId) {
-            filterExpressions.push('deviceId = :deviceId');
-            expressionAttributeValues[':deviceId'] = deviceId;
-        }
-
-        if (date) {
-            filterExpressions.push('#d = :date');
-            expressionAttributeValues[':date'] = date;
-        }
-
-        if (filterExpressions.length > 0) {
-            params.FilterExpression = filterExpressions.join(' AND ');
-            params.ExpressionAttributeValues = expressionAttributeValues;
-        }
-
-        // Add ExpressionAttributeNames for reserved keywords
-        if (date) {
-            params.ExpressionAttributeNames = { '#d': 'date' };
-        }
-
-        const result = await dynamodb.scan(params).promise();
-
-        // Apply date range filter if provided
-        let locations = result.Items || [];
-        if (startDate && endDate) {
-            locations = locations.filter(item => {
-                const itemDate = new Date(item.timestamp);
-                return itemDate >= new Date(startDate) && itemDate <= new Date(endDate);
-            });
-        }
-
-        // Sort by timestamp descending (latest first)
-        locations.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-
-        res.json(locations);
-    } catch (error) {
-        console.error('Error fetching locations:', error);
-        res.status(500).json({ error: error.message });
-    }
-});
-
-// Get latest locations (one per employee/device)
+// Get latest locations (one per employee)
 app.get('/api/locations/latest', async (req, res) => {
     try {
-        const params = {
-            TableName: LOCATION_TABLE
-        };
-
-        const result = await dynamodb.scan(params).promise();
+        const result = await dynamodb.scan({ TableName: LOCATION_TABLE }).promise();
         const locations = result.Items || [];
 
-        // Group by employeeId and get latest
         const latestLocations = {};
         locations.forEach(location => {
             if (!latestLocations[location.employeeId] ||
@@ -430,10 +306,44 @@ app.get('/api/locations/latest', async (req, res) => {
 
         const latestArray = Object.values(latestLocations);
         latestArray.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-
         res.json(latestArray);
     } catch (error) {
-        console.error('Error fetching latest locations:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// server.js - New endpoint for daily historical logs
+app.get('/api/locations/history/:employeeId', async (req, res) => {
+    try {
+        const { employeeId } = req.params;
+        const { date } = req.query; // Expecting YYYY-MM-DD
+
+        if (!employeeId || !date) {
+            return res.status(400).json({ error: 'Employee ID and Date are required' });
+        }
+
+        const params = {
+            TableName: 'EmployeeLocation',
+            FilterExpression: 'employeeId = :eid AND #d = :date',
+            ExpressionAttributeNames: {
+                '#d': 'date'
+            },
+            ExpressionAttributeValues: {
+                ':eid': employeeId,
+                ':date': date
+            }
+        };
+
+        const result = await dynamodb.scan(params).promise();
+
+        // Sort by recordedAt to ensure the polyline follows the path correctly
+        const sortedLogs = (result.Items || []).sort((a, b) =>
+            new Date(a.recordedAt) - new Date(b.recordedAt)
+        );
+
+        res.json(sortedLogs);
+    } catch (error) {
+        console.error('Error fetching history:', error);
         res.status(500).json({ error: error.message });
     }
 });
@@ -441,263 +351,238 @@ app.get('/api/locations/latest', async (req, res) => {
 // Get location history for specific employee
 app.get('/api/employees/:employeeId/locations', async (req, res) => {
     try {
-        const { startDate, endDate, limit = 50 } = req.query;
-
+        const { limit = 50 } = req.query;
         const params = {
             TableName: LOCATION_TABLE,
             FilterExpression: 'employeeId = :employeeId',
-            ExpressionAttributeValues: {
-                ':employeeId': req.params.employeeId
-            },
-            Limit: parseInt(limit)
+            ExpressionAttributeValues: { ':employeeId': req.params.employeeId },
+            Limit: parseInt(limit) // Note: Scan limit applies before filtering in DynamoDB, for full accuracy query with GSI is better but Scan works for small data
         };
 
         const result = await dynamodb.scan(params).promise();
         let locations = result.Items || [];
-
-        // Sort by timestamp descending
         locations.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-
         res.json(locations);
     } catch (error) {
-        console.error('Error fetching employee locations:', error);
         res.status(500).json({ error: error.message });
     }
 });
 
-
-// Add this to server.js
-app.get('/api/locations/status-overview', async (req, res) => {
+app.get('/api/admin/stats', async (req, res) => {
     try {
-        const today = new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD format
+        const today = getISTDateString(); // "2026-01-31"
 
-        // Fetch all data in parallel for speed
-        const [employees, attendance, locations] = await Promise.all([
-            docClient.scan({ TableName: EMPLOYEES_TABLE }).promise(),
-            docClient.scan({
-                TableName: ATTENDANCE_TABLE,
-                FilterExpression: '#d = :today',
-                ExpressionAttributeNames: { '#d': 'date' },
-                ExpressionAttributeValues: { ':today': today }
-            }).promise(),
-            docClient.scan({ TableName: LOCATION_TABLE }).promise()
-        ]);
+        // 1. Fetch Total Employees
+        const employeesResult = await dynamodb.scan({
+            TableName: EMPLOYEES_TABLE,
+            Select: 'COUNT'
+        }).promise();
+        const totalEmployees = employeesResult.Count || 0;
 
-        // Map latest location to each employee
-        const latestLocMap = {};
-        locations.Items.forEach(loc => {
-            if (!latestLocMap[loc.employeeId] || new Date(loc.timestamp) > new Date(latestLocMap[loc.employeeId].timestamp)) {
-                latestLocMap[loc.employeeId] = loc;
-            }
-        });
+        // 2. Fetch Today's Attendance
+        const attendanceResult = await dynamodb.scan({
+            TableName: ATTENDANCE_TABLE,
+            FilterExpression: '#d = :today',
+            ExpressionAttributeNames: { '#d': 'date' },
+            ExpressionAttributeValues: { ':today': today }
+        }).promise();
 
-        // Set of IDs who have ANY attendance entry today
-        const activeTodayIds = new Set(attendance.Items.map(a => a.employeeId));
+        const attendanceRecords = attendanceResult.Items || [];
 
-        const result = employees.Items.map(emp => ({
-            ...emp,
-            isLive: activeTodayIds.has(emp.employeeId), // Active if attendance exists today
-            latestLocation: latestLocMap[emp.employeeId] || null
-        }));
+        // 3. Calculate Stats
+        const presentToday = attendanceRecords.length;
 
-        res.json(result);
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
-
-// Seed test data
-app.post('/api/seed-test-data', async (req, res) => {
-    try {
-        const now = new Date();
-
-        const testEmployees = [
-            {
-                employeeId: 'EMP001',
-                name: 'John Smith',
-                email: 'john@company.com',
-                phone: '+1234567890',
-                department: 'Sales',
-                deviceId: 'GPS_TRACKER_001',
-                status: 'active',
-                createdAt: now.toISOString(),
-                lastUpdated: now.toISOString(),
-                isActive: true
-            },
-            {
-                employeeId: 'EMP002',
-                name: 'Sarah Johnson',
-                email: 'sarah@company.com',
-                phone: '+1987654321',
-                department: 'Marketing',
-                deviceId: 'GPS_TRACKER_002',
-                status: 'active',
-                createdAt: now.toISOString(),
-                lastUpdated: now.toISOString(),
-                isActive: true
-            }
-        ];
-
-        const testLocations = [
-            {
-                locationId: `EMP001_${now.getTime()}`,
-                employeeId: 'EMP001',
-                deviceId: 'GPS_TRACKER_001',
-                latitude: 40.7128,
-                longitude: -74.0060,
-                speed: 25.5,
-                accuracy: 10,
-                battery: 85,
-                timestamp: now.toISOString(),
-                date: formatDate(now),
-                time: formatTime(now)
-            },
-            {
-                locationId: `EMP002_${now.getTime() + 1000}`,
-                employeeId: 'EMP002',
-                deviceId: 'GPS_TRACKER_002',
-                latitude: 34.0522,
-                longitude: -118.2437,
-                speed: 18.2,
-                accuracy: 15,
-                battery: 92,
-                timestamp: now.toISOString(),
-                date: formatDate(now),
-                time: formatTime(now)
-            }
-        ];
-
-        // Insert test employees
-        for (const employee of testEmployees) {
-            await dynamodb.put({
-                TableName: EMPLOYEES_TABLE,
-                Item: employee
-            }).promise();
-        }
-
-        // Insert test locations
-        for (const location of testLocations) {
-            await dynamodb.put({
-                TableName: LOCATION_TABLE,
-                Item: location
-            }).promise();
-        }
+        // ACTIVE NOW LOGIC:
+        // Includes anyone who has clocked in today but does NOT have a clockOutTime yet.
+        const activeNow = attendanceRecords.filter(record => {
+            // Check if clockInTime exists and clockOutTime is null, undefined, or empty string
+            return record.clockInTime && (!record.clockOutTime || record.clockOutTime === "");
+        }).length;
 
         res.json({
             success: true,
-            message: 'Test data seeded successfully',
-            employees: testEmployees.length,
-            locations: testLocations.length
+            stats: {
+                employees: totalEmployees.toString(),
+                present: presentToday.toString(),
+                active: activeNow.toString(),
+                leave_pending: "0" // Placeholder
+            }
         });
+
     } catch (error) {
-        console.error('Error seeding test data:', error);
+        console.error('Error fetching admin stats:', error);
         res.status(500).json({ error: error.message });
     }
 });
 
+// ==========================================
+// 5. ATTENDANCE ENDPOINTS
+// ==========================================
 
-// 1. Clock In
-app.post('/api/attendance/clock-in', async (req, res) => {
-    console.log('=== CLOCK IN REQUEST START ===');
-    console.log('Request body:', req.body);
-
+// CLOCK IN
+app.post('/api/attendance/clockin', async (req, res) => {
     try {
         const { employeeId } = req.body;
-
-        if (!employeeId) {
-            return res.status(400).json({
-                success: false,
-                error: 'employeeId is required'
-            });
-        }
-
-        const now = getCurrentUTCTime();
-        const dateObj = new Date(now);
-        const today = formatDate(now); // Use UTC date
-        const loginTime = formatTime(now); // Use UTC time
+        const dateStr = getISTDateString();
+        const attendanceId = `${employeeId}_${dateStr}`;
 
         const params = {
             TableName: ATTENDANCE_TABLE,
             Item: {
+                attendanceId: attendanceId,
                 employeeId: employeeId,
-                date: today,
-                loginTime: loginTime,
-                logoutTime: null,
-                status: 'PRESENT',
-                timestamp: now
-            }
+                clockInTime: getISTTimestamp(),
+                status: 'completed',
+                date: dateStr
+            },
+            ConditionExpression: 'attribute_not_exists(attendanceId)'
         };
 
-        console.log('Saving to DynamoDB:', params);
-
         await dynamodb.put(params).promise();
-
-        console.log('✅ Clock-in saved successfully');
-
-        res.json({
-            success: true,
-            message: 'Clocked in successfully',
-            data: {
-                employeeId: employeeId,
-                date: today,
-                loginTime: loginTime,
-                timestamp: now
-            }
-        });
-
+        res.json({ success: true, message: 'Clocked in successfully', time: params.Item.clockInTime });
     } catch (error) {
-        console.error('❌ Clock-in error:', error);
-        res.status(500).json({
-            success: false,
-            error: error.message,
-            code: error.code
-        });
+        if (error.code === 'ConditionalCheckFailedException') {
+            return res.status(400).json({ error: 'Already clocked in for today.' });
+        }
+        res.status(500).json({ error: error.message });
     }
 });
 
-// Clock Out
-app.post('/api/attendance/clock-out', async (req, res) => {
-    console.log('=== CLOCK OUT REQUEST START ===');
-    console.log('Request body:', req.body);
-
+// CLOCK OUT (FIXED)
+app.post('/api/attendance/clockout', async (req, res) => {
     try {
         const { employeeId } = req.body;
+        const todayStr = getISTDateString(); // "2026-01-31"
+        console.log(`🕒 Clock-out request for: ${employeeId}`);
 
-        if (!employeeId) {
-            return res.status(400).json({
-                success: false,
-                error: 'employeeId is required'
-            });
-        }
-
-        const now = getCurrentUTCTime();
-        const dateObj = new Date(now);
-        const today = formatDate(now); // Use UTC date
-        const logoutTime = formatTime(now); // Use UTC time
-
-        const params = {
+        // 1. Find the record for TODAY specifically
+        const scanParams = {
             TableName: ATTENDANCE_TABLE,
-            Key: {
-                employeeId: employeeId,
-                date: today
-            },
-            UpdateExpression: "SET logoutTime = :l",
-            ExpressionAttributeValues: {
-                ":l": logoutTime
-            },
-            ReturnValues: "UPDATED_NEW"
+            FilterExpression: "employeeId = :eid AND #d = :today",
+            ExpressionAttributeNames: { "#d": "date" },
+            ExpressionAttributeValues: { ":eid": employeeId, ":today": todayStr }
         };
 
-        const result = await dynamodb.update(params).promise();
+        const result = await dynamodb.scan(scanParams).promise();
+
+        if (!result.Items || result.Items.length === 0) {
+            return res.status(404).json({ error: "No attendance record found for today." });
+        }
+
+        const session = result.Items[0];
+        const istNow = getISTTimestamp();
+
+        // 2. Use the exact keys to update
+        const dbKey = {
+            'employeeId': session.employeeId,
+            'date': session.date
+        };
+
+        const updateParams = {
+            TableName: ATTENDANCE_TABLE,
+            Key: dbKey,
+            // 'set clockOutTime = :t' adds the new column
+            UpdateExpression: "set clockOutTime = :t, #s = :status",
+            ExpressionAttributeNames: { "#s": "status" },
+            ExpressionAttributeValues: {
+                ":t": istNow,
+                ":status": "present" // Keeping 'completed' so the app stops tracking
+            },
+            ReturnValues: "ALL_NEW"
+        };
+
+        const updateResult = await dynamodb.update(updateParams).promise();
+        console.log("✅ Saved to DynamoDB:", updateResult.Attributes);
 
         res.json({
             success: true,
             message: 'Clocked out successfully',
-            logoutTime,
-            updated: result.Attributes
+            clockOutTime: istNow
         });
+
     } catch (error) {
-        console.error('Clock-out error:', error);
+        console.error('❌ Error:', error.message);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Check Status
+app.get('/api/attendance/status/:employeeId', async (req, res) => {
+    try {
+        const { employeeId } = req.params;
+        const scanParams = {
+            TableName: ATTENDANCE_TABLE,
+            FilterExpression: "employeeId = :eid AND #s = :status",
+            ExpressionAttributeNames: { "#s": "status" },
+            ExpressionAttributeValues: { ":eid": employeeId, ":status": "present" }
+        };
+
+        const result = await dynamodb.scan(scanParams).promise();
+        const isClockedIn = result.Items && result.Items.length > 0;
+
+        res.json({ success: true, isClockedIn, data: isClockedIn ? result.Items[0] : null });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// ==========================================
+// ADMIN DASHBOARD STATS
+// ==========================================
+app.get('/api/admin/stats', async (req, res) => {
+    try {
+        const today = getISTDateString();
+
+        // 1. Get all employees (active only)
+        const employeesResult = await dynamodb.scan({
+            TableName: EMPLOYEES_TABLE,
+            FilterExpression: 'isActive = :active',
+            ExpressionAttributeValues: { ':active': true }
+        }).promise();
+
+        const allEmployees = employeesResult.Items || [];
+        const totalEmployees = allEmployees.length;
+
+        // 2. Get today's attendance records
+        const attendanceResult = await dynamodb.scan({
+            TableName: ATTENDANCE_TABLE,
+            FilterExpression: '#d = :today',
+            ExpressionAttributeNames: { '#d': 'date' },
+            ExpressionAttributeValues: { ':today': today }
+        }).promise();
+
+        const todayAttendance = attendanceResult.Items || [];
+
+        // 3. Calculate counts
+        let presentToday = 0;
+        let activeNow = 0;
+
+        todayAttendance.forEach(record => {
+            if (record.status && record.status.toLowerCase() === 'present') {
+                presentToday++; // Count all present records
+
+                // Count as active if there's clockInTime but NO clockOutTime
+                if (record.clockInTime && !record.clockOutTime) {
+                    activeNow++;
+                }
+            }
+        });
+
+        // 4. Pending leave (placeholder - add your own logic)
+        const pendingLeave = 0;
+
+        res.json({
+            success: true,
+            stats: {
+                employees: totalEmployees.toString(),
+                present: presentToday.toString(),
+                active: activeNow.toString(),
+                leave_pending: pendingLeave.toString()
+            }
+        });
+
+    } catch (error) {
+        console.error('Error fetching admin stats:', error);
         res.status(500).json({
             success: false,
             error: error.message
@@ -705,20 +590,29 @@ app.post('/api/attendance/clock-out', async (req, res) => {
     }
 });
 
-// Helper for employee status update
-async function updateEmployeeStatus(employeeId, status, now) {
-    const params = {
-        TableName: EMPLOYEES_TABLE,
-        Key: { employeeId },
-        UpdateExpression: 'SET #s = :status, lastUpdated = :updated',
-        ExpressionAttributeNames: { '#s': 'status' },
-        ExpressionAttributeValues: {
-            ':status': status,
-            ':updated': now.toISOString()
+
+// ==========================================
+// 6. UTILITIES
+// ==========================================
+
+// Seed test data
+app.post('/api/seed-test-data', async (req, res) => {
+    try {
+        const now = new Date();
+        const testEmployees = [
+            { employeeId: 'EMP001', name: 'John Smith', email: 'john@company.com', status: 'active', isActive: true, password: '12345' },
+            { employeeId: 'EMP002', name: 'Sarah Johnson', email: 'sarah@company.com', status: 'active', isActive: true, password: '123' }
+        ];
+
+        for (const employee of testEmployees) {
+            await dynamodb.put({ TableName: EMPLOYEES_TABLE, Item: employee }).promise();
         }
-    };
-    await dynamodb.update(params).promise();
-}
+
+        res.json({ success: true, message: 'Test data seeded successfully' });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
 
 // Health check
 app.get('/api/health', (req, res) => {
@@ -729,41 +623,16 @@ app.get('/api/health', (req, res) => {
     });
 });
 
-// Error handling middleware
+// Error handling
 app.use((err, req, res, next) => {
     console.error(err.stack);
-
-    // Log to file in production
-    if (process.env.NODE_ENV === 'production') {
-        const fs = require('fs');
-        fs.appendFileSync('error.log', `${new Date().toISOString()} - ${err.stack}\n`);
-    }
-
-    res.status(500).json({
-        error: process.env.NODE_ENV === 'production'
-            ? 'Something went wrong!'
-            : err.message
-    });
+    res.status(500).json({ error: err.message });
 });
-
-// Only serve API routes, not static files
-app.get('/api', (req, res) => {
-    res.json({
-        message: 'API Server is running',
-        timestamp: new Date().toISOString(),
-        status: 'online',
-        endpoints: ['/api/test', '/api/users'] // Add your actual endpoints
-    });
-});
-
 
 // Start server
 app.listen(port, () => {
     console.log('========================================');
-    console.log('Employee Location Tracker API');
-    console.log('========================================');
+    console.log('Employee Location Tracker API (COMPLETE)');
     console.log(`Server running on port ${port}`);
-    console.log(`Internal: http://localhost:${port}`);
-    console.log(`API via Nginx: https://api.greenchilliestechnology.com/api`);
     console.log('========================================');
 });
