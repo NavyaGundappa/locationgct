@@ -63,11 +63,18 @@ const limiter = rateLimit({
 });
 app.use('/api/', limiter);
 
-const allowedOrigins = [
-    'https://greenchilliestechnology.com',
-    'https://api.greenchilliestechnology.com',
-    'http://localhost:3000',
-];
+const allowedOrigins =
+    process.env.NODE_ENV === 'production'
+        ? [
+            'https://api.greenchilliestechnology.com',
+            'http://localhost:3000',
+            'http://localhost:61547',
+            'http://192.168.50.105:3000',
+            'http://localhost:60642',
+            'capacitor://localhost', // For Android/iOS APK
+            'http://localhost'       // For local testing
+        ]
+        : ['http://localhost:3000'];
 
 app.use(cors({
     origin: function (origin, callback) {
@@ -86,7 +93,7 @@ app.use(bodyParser.json());
 
 // AWS Configuration
 AWS.config.update({
-    region: process.env.AWS_REGION || 'us-north-1',
+    region: process.env.AWS_REGION || 'ap-south-1',
     accessKeyId: process.env.AWS_ACCESS_KEY_ID,
     secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY
 });
@@ -526,6 +533,42 @@ app.get('/api/attendance/status/:employeeId', async (req, res) => {
     }
 });
 
+// Add this to your Attendance Endpoints section in server.js
+app.get('/api/attendance/today/:employeeId', async (req, res) => {
+    try {
+        const { employeeId } = req.params;
+        const todayStr = getISTDateString(); // Gets "2026-02-03"
+
+        // We use Scan here because your table might be using 
+        // attendanceId as the Partition Key.
+        const params = {
+            TableName: ATTENDANCE_TABLE,
+            FilterExpression: "employeeId = :eid AND #d = :today",
+            ExpressionAttributeNames: { "#d": "date" },
+            ExpressionAttributeValues: {
+                ":eid": employeeId,
+                ":today": todayStr
+            }
+        };
+
+        const result = await dynamodb.scan(params).promise();
+
+        if (result.Items && result.Items.length > 0) {
+            res.json({
+                success: true,
+                attendance: result.Items[0] // Returns the record you showed me
+            });
+        } else {
+            res.json({
+                success: true,
+                attendance: null
+            });
+        }
+    } catch (error) {
+        console.error('Error fetching today attendance:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
 // ==========================================
 // ADMIN DASHBOARD STATS
 // ==========================================
